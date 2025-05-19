@@ -1,0 +1,412 @@
+# name: CI/CD - Liga Crypto Notifier Bot
+
+# on:
+#   push:
+#     branches:
+#       - main
+#       - develop
+#       - 'release/*'
+#       - 'feature/*'
+#       - 'hotfix/*'
+#       - 'bugfix/*'
+#       - 'dependabot/**'
+#   pull_request:
+#     branches:
+#       - 'dependabot/**'
+
+# concurrency:
+#   group: ${{ github.workflow }}-${{ github.ref }}
+#   cancel-in-progress: true
+
+# env:
+#   S3_BUCKET_NAME: automacao-liga-crypto
+#   APP_NAME: automacao-liga-telegram-bot
+#   PLATFORM_ARN: arn:aws:elasticbeanstalk:us-east-1::platform/Node.js 20 running on 64bit Amazon Linux 2023/6.5.1
+#   TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+#   TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+# jobs:
+#   setup:
+#     name: Setup do Projeto
+#     runs-on: ubuntu-latest
+#     permissions:
+#       contents: read
+#     outputs:
+#       short_sha: ${{ steps.short_sha.outputs.value }}
+#     steps:
+#       - name: Checkout do código
+#         uses: actions/checkout@v3
+
+#       - name: Definir hash curto
+#         id: short_sha
+#         run: echo "value=${GITHUB_SHA::6}" >> $GITHUB_OUTPUT
+
+#       - name: Instalar dependências com cache
+#         uses: ./.github/actions/setup-node
+
+#   quality-check:
+#     name: Code Quality & Testes
+#     runs-on: ubuntu-latest
+#     needs: setup
+#     permissions:
+#       contents: read
+#     env:
+#       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+#     steps:
+#       - name: Checkout do código
+#         uses: actions/checkout@v3
+
+#       - name: Instalar dependências com cache
+#         uses: ./.github/actions/setup-node
+
+#       - name: Lint
+#         run: npm run lint
+
+#       - name: Prettier check
+#         run: npx prettier . --check
+
+#       - name: Testes com cobertura
+#         run: |
+#           npm run test:coverage || exit 1
+#           test -f coverage/lcov.info || { echo "Cobertura não gerada"; exit 1; }
+#           test -s coverage/lcov.info || { echo "Cobertura inválida ou vazia"; exit 1; }
+
+#       - name: Upload cobertura para Codecov
+#         uses: codecov/codecov-action@v5
+#         with:
+#           token: ${{ secrets.CODECOV_TOKEN }}
+#           files: coverage/lcov.info
+#           name: codecov-report
+#           flags: unittests
+#           fail_ci_if_error: true
+
+#       - name: Auditoria de dependências (npm audit)
+#         run: npm audit --audit-level=moderate
+
+#       - name: Executar análise com SonarCloud
+#         if: github.ref == 'refs/heads/main'
+#         uses: SonarSource/sonarcloud-github-action@v2
+
+#   sast-sca:
+#     name: SAST & SCA (Semgrep + Snyk)
+#     runs-on: ubuntu-latest
+#     needs: [quality-check]
+#     permissions:
+#       contents: read
+#     env:
+#       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+#       SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+#     steps:
+#       - name: Checkout do código
+#         uses: actions/checkout@v3
+
+#       - name: Instalar dependências com cache
+#         uses: ./.github/actions/setup-node
+
+#       - name: Instalar Snyk CLI com cache
+#         uses: ./.github/actions/setup-snyk
+
+#       - name: Análise estática com Semgrep
+#         uses: ./.github/actions/setup-semgrep
+
+#       - name: Verificar dependências vulneráveis (Snyk SCA)
+#         run: |
+#           echo "Executando Snyk para verificar dependências vulneráveis..."
+#           snyk test --severity-threshold=high || echo "::warning ::Snyk falhou (rede ou erro genérico). Check manual sugerido."
+
+#       - name: Monitorar dependências com Snyk (SCA)
+#         run: |
+#           echo "Monitorando dependências com Snyk..."
+#           snyk monitor --all-projects || echo "::warning ::Snyk Monitor falhou (rede ou erro genérico). Check manual sugerido."
+
+#       - name: Verificar falhas de segurança no código (Snyk Code)
+#         run: |
+#           echo "Executando Snyk Code..."
+#           snyk code test || echo "::warning ::Snyk Code falhou (rede, erro interno ou limite atingido). Check manual sugerido."
+
+#   deploy:
+#     name: Deploy para AWS Elastic Beanstalk
+#     runs-on: ubuntu-latest
+#     needs: [sast-sca]
+#     if: (startsWith(github.ref, 'refs/heads/release/') || github.ref == 'refs/heads/main') && success()
+#     permissions:
+#       contents: read
+#     env:
+#       VERSION_LABEL: ${{ github.sha }}-${{ github.run_number }}
+#     steps:
+#       - uses: actions/checkout@v3
+
+#       - name: Definir nome do novo environment
+#         run: |
+#           ENV_NAME=automacao-liga-env-${GITHUB_SHA::6}
+#           echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
+
+#       - name: Configurar credenciais AWS
+#         uses: ./.github/actions/setup-aws
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: ${{ secrets.AWS_REGION }}
+
+#       - name: Instalar dependências (prod)
+#         run: npm ci --omit=dev
+
+#       - name: Zipar aplicação
+#         run: zip -r app.zip . -x '*.git*' 'node_modules/*' '*.zip' '.github/' '.vscode/' '*.md' '*.log' 'coverage/*' 'tmp/*'
+
+#       - name: Upload para S3
+#         run: aws s3 cp app.zip s3://$S3_BUCKET_NAME/automacao-${{ env.VERSION_LABEL }}.zip
+
+#       - name: Criar app Beanstalk se necessário
+#         run: |
+#           if [ "$(aws elasticbeanstalk describe-applications --query "Applications[?ApplicationName=='${APP_NAME}'] | length(@)")" -eq 0 ]; then
+#             aws elasticbeanstalk create-application --application-name ${APP_NAME}
+#           fi
+
+#       - name: Verificar e remover versão existente se necessário
+#         run: |
+#           VERSION_EXISTS=$(aws elasticbeanstalk describe-application-versions \
+#             --application-name "${APP_NAME}" \
+#             --query "ApplicationVersions[?VersionLabel=='${VERSION_LABEL}'] | length(@)" \
+#             --output text)
+
+#           if [ "$VERSION_EXISTS" -gt 0 ]; then
+#             echo "Versão ${VERSION_LABEL} já existe. Tentando excluir antes de criar novamente..."
+
+#             # Verifica se está associada a algum ambiente
+#             IN_USE=$(aws elasticbeanstalk describe-environments \
+#               --application-name "${APP_NAME}" \
+#               --query "Environments[?VersionLabel=='${VERSION_LABEL}'] | length(@)" \
+#               --output text)
+
+#             if [ "$IN_USE" -eq 0 ]; then
+#               aws elasticbeanstalk delete-application-version \
+#                 --application-name "${APP_NAME}" \
+#                 --version-label "${VERSION_LABEL}" \
+#                 --delete-source-bundle
+#               echo "Versão removida."
+#             else
+#               echo "Não é seguro remover a versão, pois está em uso por um ambiente ativo."
+#               exit 1
+#             fi
+#           else
+#             echo "Versão ainda não existe."
+#           fi
+
+#       - name: Criar nova versão da aplicação
+#         run: |
+#           aws elasticbeanstalk create-application-version \
+#             --application-name ${APP_NAME} \
+#             --version-label ${{ env.VERSION_LABEL }} \
+#             --source-bundle S3Bucket=$S3_BUCKET_NAME,S3Key=automacao-${{ env.VERSION_LABEL }}.zip
+
+#       - name: Criar novo environment (ou ignorar se já existir)
+#         run: |
+#           if [ "$(aws elasticbeanstalk describe-environments \
+#             --application-name \"${APP_NAME}\" \
+#             --query 'Environments[?EnvironmentName==`'"${ENV_NAME}"'`] | length(@)' \
+#             --output text)" -eq 0 ]; then
+#             aws elasticbeanstalk create-environment \
+#               --application-name ${APP_NAME} \
+#               --environment-name ${ENV_NAME} \
+#               --platform-arn "${PLATFORM_ARN}" \
+#               --version-label ${{ env.VERSION_LABEL }} \
+#               --option-settings \
+#                 Namespace=aws:autoscaling:launchconfiguration,OptionName=IamInstanceProfile,Value=aws-elasticbeanstalk-ec2-role \
+#                 Namespace=aws:elasticbeanstalk:application:environment,OptionName=TELEGRAM_BOT_TOKEN,Value=${{ secrets.TELEGRAM_BOT_TOKEN }} \
+#                 Namespace=aws:elasticbeanstalk:application:environment,OptionName=TELEGRAM_CHAT_ID,Value=${{ secrets.TELEGRAM_CHAT_ID }} \
+#                 Namespace=aws:elasticbeanstalk:environment:process:default,OptionName=HealthCheckPath,Value=/health
+#           else
+#             echo "Ambiente já existe."
+#           fi
+
+#       - name: Aguardar novo ambiente ficar pronto
+#         run: |
+#           for i in {1..30}; do
+#             STATUS=$(aws elasticbeanstalk describe-environments \
+#               --application-name "${APP_NAME}" \
+#               --environment-names "${ENV_NAME}" \
+#               --query "Environments[0].Status" \
+#               --output text 2>/dev/null)
+
+#             echo "Status atual: $STATUS"
+#             [[ "$STATUS" == "Ready" || "$STATUS" == "Terminated" ]] && break
+#             sleep 30
+#           done
+
+#       - name: Atualizar environment com nova versão
+#         run: |
+#           aws elasticbeanstalk update-environment \
+#             --environment-name ${ENV_NAME} \
+#             --version-label ${{ env.VERSION_LABEL }}
+
+#       - name: Salvar nome do novo environment
+#         run: |
+#           echo "$ENV_NAME" > last-env-name.txt
+#           aws s3 cp last-env-name.txt s3://${S3_BUCKET_NAME}/last-env-name.txt
+
+#   zap:
+#     name: ZAP Baseline Scan
+#     runs-on: ubuntu-latest
+#     needs: [deploy]
+#     if: ${{ success() }}
+#     permissions:
+#       contents: read
+#       issues: write
+
+#     env:
+#       YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
+#       YOUTUBE_VERIFY_TOKEN: ${{ secrets.YOUTUBE_VERIFY_TOKEN }}
+#       YOUTUBE_CALLBACK_PATH: ${{ secrets.YOUTUBE_CALLBACK_PATH }}
+#       INTERNAL_ENV_BASE_PREFIX: ${{ secrets.INTERNAL_ENV_BASE_PREFIX }}
+#       AWS_REGION: ${{ secrets.AWS_REGION }}
+
+#     steps:
+#       - name: Checkout do repositório
+#         uses: actions/checkout@v3
+
+#       - name: Configurar credenciais AWS
+#         uses: ./.github/actions/setup-aws
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: ${{ secrets.AWS_REGION }}
+
+#       - name: Resgatar environment e URL do último deploy
+#         id: env-info
+#         run: |
+#           aws s3 cp s3://automacao-liga-crypto/last-env-name.txt .
+#           ENV_NAME=$(cat last-env-name.txt)
+#           echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
+#           echo "env_name=$ENV_NAME" >> $GITHUB_OUTPUT
+
+#           URL=$(aws elasticbeanstalk describe-environments \
+#             --application-name "automacao-liga-telegram-bot" \
+#             --environment-names "$ENV_NAME" \
+#             --query "Environments[0].CNAME" --output text)
+
+#           if [ "$URL" == "None" ] || [ -z "$URL" ]; then
+#             echo "Erro ao obter a URL do Beanstalk"
+#             exit 1
+#           fi
+
+#           echo "ZAP_TARGET=http://$URL" >> $GITHUB_ENV
+#           echo "zap_target=http://$URL" >> $GITHUB_OUTPUT
+#           echo "URL final: http://$URL"
+
+#           for i in {1..3}; do
+#             echo "Verificando /health (tentativa $i)..."
+#             if curl -sf "http://$URL/health"; then
+#               echo "Ambiente OK!"
+#               exit 0
+#             fi
+#             sleep 10
+#           done;
+#           echo "Falha ao validar ambiente. Deletando $ENV_NAME..."
+#           aws elasticbeanstalk terminate-environment \
+#             --environment-name "$ENV_NAME" \
+#             --terminate-resources
+#           exit 1
+
+#       - name: ZAP Baseline Scan
+#         uses: zaproxy/action-baseline@v0.14.0
+#         with:
+#           target: ${{ steps.env-info.outputs.zap_target }}
+#           fail_action: false
+
+#       - name: Reassinar canal do YouTube com retry
+#         run: |
+#           CALLBACK_PATH=${YOUTUBE_CALLBACK_PATH#/}
+#           CALLBACK_URL="${{ steps.env-info.outputs.zap_target }}/${CALLBACK_PATH}"
+
+#           if [[ -z "$CALLBACK_URL" || "$CALLBACK_URL" == */ ]]; then
+#             echo "CALLBACK_URL malformada: $CALLBACK_URL"
+#             exit 1
+#           fi
+
+#           echo "Callback final: $CALLBACK_URL"
+
+#           DOMAIN=$(echo "$CALLBACK_URL" | awk -F[/:] '{print $4}')
+#           if [ -z "$DOMAIN" ]; then
+#             echo "Falha ao extrair domínio de $CALLBACK_URL"
+#             exit 1
+#           fi
+
+#           for i in {1..10}; do
+#             if host "$DOMAIN" &> /dev/null; then
+#               echo "DNS resolvido: $DOMAIN"
+#               break
+#             else
+#               echo "DNS ainda não resolvido ($i/10)..."
+#               sleep 5
+#             fi
+#           done
+
+#           for i in {1..5}; do
+#             CODE=$(curl -s -o /dev/null -w "%{http_code}" "$CALLBACK_URL" || echo "000")
+
+#             if [[ "$CODE" == "200" || "$CODE" == "400" ]]; then
+#               echo "Callback responde (HTTP $CODE). Prosseguindo com reinscrição..."
+
+#               curl -X POST https://pubsubhubbub.appspot.com/subscribe \
+#                 -H "Content-Type: application/x-www-form-urlencoded" \
+#                 --data-urlencode "hub.callback=$CALLBACK_URL" \
+#                 --data-urlencode "hub.mode=subscribe" \
+#                 --data-urlencode "hub.topic=https://www.youtube.com/xml/feeds/videos.xml?channel_id=$YOUTUBE_CHANNEL_ID" \
+#                 --data-urlencode "hub.verify=sync" \
+#                 --data-urlencode "hub.verify_token=$YOUTUBE_VERIFY_TOKEN"
+
+#               exit 0
+#             else
+#               echo "Ainda indisponível (HTTP $CODE). Tentando novamente..."
+#               sleep 5
+#             fi
+#           done
+
+#           echo "Falha ao reinscrever canal após múltiplas tentativas."
+#           exit 1
+
+#   delete-old-envs:
+#     name: Deletar Environments Antigos
+#     runs-on: ubuntu-latest
+#     needs: [zap]
+#     if: ${{ success() }}
+#     permissions:
+#       contents: read
+
+#     steps:
+#       - name: Checkout do repositório
+#         uses: actions/checkout@v3
+
+#       - name: Configurar credenciais AWS
+#         uses: ./.github/actions/setup-aws
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: ${{ secrets.AWS_REGION }}
+
+#       - name: Resgatar nome do último ambiente deployado
+#         run: |
+#           aws s3 cp s3://automacao-liga-crypto/last-env-name.txt .
+#           CURRENT_ENV=$(cat last-env-name.txt)
+#           echo "CURRENT_ENV=$CURRENT_ENV" >> $GITHUB_ENV
+
+#       - name: Deletar environments antigos (exceto o atual)
+#         run: |
+#           echo "Mantendo o environment atual: $CURRENT_ENV"
+
+#           ENVIRONMENTS=$(aws elasticbeanstalk describe-environments \
+#             --application-name "automacao-liga-telegram-bot" \
+#             --query "Environments[?Status=='Ready'].EnvironmentName" \
+#             --output text)
+
+#           for ENV in $ENVIRONMENTS; do
+#             if [ "$ENV" != "$CURRENT_ENV" ]; then
+#               echo "Deletando environment antigo: $ENV"
+#               aws elasticbeanstalk terminate-environment \
+#                 --environment-name "$ENV" \
+#                 --terminate-resources
+#             else
+#               echo "Preservado: $ENV"
+#             fi
+#           done
