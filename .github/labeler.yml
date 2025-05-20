@@ -1,0 +1,46 @@
+# docs:
+#   - changed-files:
+#       - any-glob-to-any-file: ['**/*.md', 'README.md', 'docs/**']
+
+# tests:
+#   - changed-files:
+#       - any-glob-to-any-file: ['**/*.spec.js', '**/*.test.js']
+
+# api:
+#   - changed-files:
+#       - any-glob-to-any-file:
+#           ['src/routes/**', 'middlewares/**', 'src/index.js']
+
+# infra:
+#   - changed-files:
+#       - any-glob-to-any-file:
+#           ['scripts/**', 'generate-docs.js', '.ebextensions/**']
+
+# ci:
+#   - changed-files:
+#       - any-glob-to-any-file:
+#           ['.github/workflows/**', '.github/actions/**', '.husky/**']
+
+# security:
+#   - changed-files:
+#       - any-glob-to-any-file:
+#           [
+#             'middlewares/security.js',
+#             '**/applySecurityHeaders.js',
+#             '.github/workflows/zap.yml',
+#             'SECURITY.md',
+#           ]
+
+# config:
+#   - changed-files:
+#       - any-glob-to-any-file:
+#           ['.eslintrc', '.prettierrc', '.env.example', 'commitlint.config.js']
+
+# dependencies:
+#   - changed-files:
+#       - any-glob-to-any-file: ['package.json', 'package-lock.json']
+
+# bot:
+#   - changed-files:
+#       - any-glob-to-any-file:
+#           ['src/routes/youtube.js', 'src/routes/subscribe.js']

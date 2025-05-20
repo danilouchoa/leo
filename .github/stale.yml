@@ -1,0 +1,38 @@
+# daysUntilStale: 14
+# daysUntilClose: 7
+
+# # Para issues
+# staleLabel: no-issue-activity
+# exemptIssueLabels:
+#   - keep-open
+#   - bug
+#   - enhancement
+#   - security
+# markComment: >
+#   ⚠️ Esta issue está inativa há 14 dias. Se não houver atividade, ela será fechada em 7 dias.
+
+# closeComment: >
+#   ❌ Esta issue foi fechada automaticamente por inatividade. Reabra ou comente se ainda for relevante.
+
+# # Para pull requests
+# stalePrLabel: no-pr-activity
+# exemptPrLabels:
+#   - dependabot
+#   - keep-open
+#   - security
+#   - bug
+# markPrComment: >
+#   ⏳ Este pull request está inativo há 14 dias. Ele será fechado em 7 dias se não houver atualizações.
+
+# closePrComment: >
+#   🚫 Este PR foi fechado automaticamente por falta de atividade. Sinta-se à vontade para reabrir se necessário.
+
+# # Ignorar rascunhos
+# exemptDraftPr: true
+
+# # Executar apenas em issues e PRs abertos
+# onlyLabels:
+#   - ''
+
+# # Evitar marcar com mais de um label por execução
+# removeStaleWhenUpdated: true

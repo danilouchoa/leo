@@ -1,0 +1,31 @@
+# Arquivo CODEOWNERS
+# Define responsáveis por cada parte do código
+# Formato: caminho  @usuarioGitHub
+
+# Responsável global por tudo no repositório
+* @danilouchoa
+
+# Rotas de API
+/src/routes/ @danilouchoa
+
+# Middlewares
+/middlewares/ @danilouchoa
+
+# Testes automatizados
+/__tests__/ @danilouchoa
+
+# Documentação e segurança
+/docs/ @danilouchoa
+README.md @danilouchoa
+SECURITY.md @danilouchoa
+CONTRIBUTING.md @danilouchoa
+
+# Workflows de CI/CD
+.github/workflows/ @danilouchoa
+
+# Dependências e configurações
+package.json @danilouchoa
+package-lock.json @danilouchoa
+
+# Coverage e relatórios
+coverage/ @danilouchoa

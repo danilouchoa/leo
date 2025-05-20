@@ -1,0 +1,17 @@
+name: Setup Snyk
+description: Instala o Snyk CLI com cache de npm global
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Cache do npm global
+      uses: actions/cache@v3
+      with:
+        path: ~/.npm
+        key: npm-global-${{ runner.os }}-snyk
+        restore-keys: |
+          npm-global-${{ runner.os }}-
+
+    - name: Instalar Snyk globalmente
+      run: npm install -g snyk
+      shell: bash

@@ -1,0 +1,123 @@
+# name: Label - Ready to Merge
+
+# on:
+#   workflow_run:
+#     workflows: ['CI/CD - Liga Crypto Notifier Bot']
+#     types: [completed]
+
+# permissions:
+#   contents: read
+#   pull-requests: write
+#   issues: write
+
+# jobs:
+#   add-label-if-all-jobs-passed:
+#     if: github.event.workflow_run.name == 'CI/CD - Liga Crypto Notifier Bot'
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Validar jobs da pipeline e etiquetar PR
+#         uses: actions/github-script@v7
+#         env:
+#           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+#           WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+#         with:
+#           script: |
+#             const owner = context.repo.owner;
+#             const repo = context.repo.repo;
+#             const branch = process.env.HEAD_BRANCH;
+#             const runId = process.env.WORKFLOW_RUN_ID;
+
+#             const allowedPrefixes = ['dependabot/', 'hotfix/', 'release/', 'bugfix/', 'feature/', 'chore/'];
+#             const isAllowed = allowedPrefixes.some(prefix => branch.startsWith(prefix));
+
+#             if (!isAllowed) {
+#               console.log(`Branch '${branch}' não tem prefixo permitido. Ignorando.`);
+#               return;
+#             }
+
+#             const maxAttempts = 10;
+#             const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+#             for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+#               const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+#                 owner,
+#                 repo,
+#                 run_id: runId,
+#               });
+
+#               const completedJobs = jobs.jobs.filter(j => j.status === "completed");
+#               const stillRunning = jobs.jobs.length !== completedJobs.length;
+
+#               if (stillRunning) {
+#                 console.log(`Jobs ainda em execução. Tentativa ${attempt}/${maxAttempts}`);
+#               } else {
+#                 const failedJobs = completedJobs.filter(j =>
+#                   ["failure", "cancelled", "timed_out", "action_required"].includes(j.conclusion)
+#                 );
+
+#                 if (failedJobs.length > 0) {
+#                   console.log("Alguns jobs falharam. PR não será marcado como ready.");
+#                   failedJobs.forEach(j => {
+#                     console.log(`Job: ${j.name} (${j.conclusion})`);
+#                   });
+#                   return;
+#                 }
+
+#                 console.log("Todos os jobs passaram com sucesso. Continuando.");
+#                 break;
+#               }
+
+#               if (attempt === maxAttempts) {
+#                 console.log("Limite de tentativas atingido. Nem todos os jobs finalizaram.");
+#                 return;
+#               }
+
+#               await delay(60000); // Espera 1 minuto antes de tentar novamente
+#             }
+
+#             const headRef = `${owner}:${branch}`;
+#             const { data: prList } = await github.rest.pulls.list({
+#               owner,
+#               repo,
+#               head: headRef,
+#               state: "open"
+#             });
+
+#             if (prList.length === 0) {
+#               console.log(`Nenhum PR aberto encontrado para '${headRef}'`);
+#               return;
+#             }
+
+#             const pr = prList[0];
+
+#             await github.rest.issues.addLabels({
+#               owner,
+#               repo,
+#               issue_number: pr.number,
+#               labels: ['ready-to-merge'],
+#             });
+
+#             await github.rest.issues.createComment({
+#               owner,
+#               repo,
+#               issue_number: pr.number,
+#               body: "Todos os jobs da pipeline foram concluídos com sucesso. PR marcado como `ready-to-merge`.",
+#             });
+
+#             const { data: files } = await github.rest.pulls.listFiles({
+#               owner,
+#               repo,
+#               pull_number: pr.number,
+#             });
+
+#             const packageFiles = files.filter(f => f.filename.includes('package.json'));
+#             if (packageFiles.length > 0) {
+#               await github.rest.issues.createComment({
+#                 owner,
+#                 repo,
+#                 issue_number: pr.number,
+#                 body: `Foram detectadas mudanças em \`${packageFiles.map(f => f.filename).join(', ')}\`. Verifique se as dependências estão seguras.`,
+#               });
+#             }
+
+#             console.log(`Label e comentários aplicados ao PR #${pr.number}`);

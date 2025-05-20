@@ -1,0 +1,18 @@
+name: Setup Node with Cache
+description: Restaura cache do npm + instala dependências com npm ci
+runs:
+  using: 'composite'
+  steps:
+    - name: Cache npm e node_modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.npm
+          node_modules
+        key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
+
+    - name: Instalar dependências (npm ci)
+      shell: bash
+      run: npm ci
